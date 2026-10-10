@@ -109,6 +109,16 @@ nand2tetris layout and where jackvm's Ctrl+J looks for sources. If that
 folder already has `.jack` files that this tool didn't write, they're left
 alone, and the files go into a `decompiled/` sub-folder instead.
 
+### Opening it from jackvm (Ctrl+U)
+
+In [jackvm-py](https://github.com/kpillai2017/jackvm-py)'s player, **Ctrl+U**
+opens the running program here. jackvm finds this app through the
+`jack_tools` entry point `decompiler` (after `pip install -e .` in the same
+environment), a `jackdecomp` command on the `PATH`, the `JACKDECOMP`
+environment variable, or `jackdecomp = <this folder>` under `[apps]` in
+`~/.config/jack-tools/config.ini`. The first time it isn't found, jackvm
+asks for this folder and saves it in the config file.
+
 ### Ctrl+J: the Jack compiler
 
 Ctrl+J finds jack-compiler's window (`jackc-gui`) the same way jackvm does.
