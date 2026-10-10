@@ -95,6 +95,7 @@ wherever there's a matching action:
 | Ctrl+R | reload the `.vm` files and decompile again | restart the program |
 | Ctrl+N / Ctrl+P | next / previous class (also Tab / Shift+Tab, or click a tab) | Ctrl+N: step |
 | Ctrl+S | save the `.jack` files | – |
+| Ctrl+Shift+S | **save as**: choose the folder to save the `.jack` files in | – |
 | Ctrl+T | **test**: recompile every class and compare with the VM code | – |
 | Ctrl+J | save, then open the `.jack` files in [jack-compiler](https://github.com/kpillai2017/jack-compiler)'s window | open sources in jack-compiler |
 | Ctrl+Q | quit (closing the window works too) | quit |
@@ -112,6 +113,14 @@ Next to the `.vm` files (`Ball.vm` → `Ball.jack`), which is the usual
 nand2tetris layout and where jackvm's Ctrl+J looks for sources. If that
 folder already has `.jack` files that this tool didn't write, they're left
 alone, and the files go into a `decompiled/` sub-folder instead.
+
+To save somewhere else, start with `-o FOLDER` (e.g. `jackdecomp -o out/`
+or `jackdecomp --gui games/pong -o out/`), or press **Ctrl+Shift+S** and
+choose a folder: **Enter** opens a folder, and `[save here]` next to a
+folder, **Ctrl+Enter**, or the *Save here* button saves there (**Esc** goes
+back without saving). After that, Ctrl+S and Ctrl+J save in that folder too.
+Hand-written `.jack` files are never overwritten there either (unless you
+started with `-o FOLDER --force`).
 
 ### Opening it from jackvm (Ctrl+U)
 
@@ -148,10 +157,10 @@ python3 -m jack_decompiler --help
 
 | Option | Meaning |
 |--------|---------|
-| `-o FOLDER` | write one `.jack` file per class into FOLDER |
+| `-o FOLDER` | write one `.jack` file per class into FOLDER. With `--gui`, or with no `.vm` files given, the window opens and Ctrl+S saves into FOLDER |
 | `--stdout` | print the Jack code |
 | `--verify` | recompile the Jack code and compare it with the original VM code |
-| `--force` | with `-o`: overwrite `.jack` files that this tool didn't write |
+| `--force` | with `-o`: overwrite `.jack` files that this tool didn't write (in the window too) |
 | `--keep-function-names` | don't rename meaningless names such as `f1` |
 | `--gui` | open the window as well |
 

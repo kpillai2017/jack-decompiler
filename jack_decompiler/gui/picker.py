@@ -16,6 +16,11 @@ Works like jackvm's file picker:
 Keys: Up/Down/PgUp/PgDn/Home/End move, Enter opens a folder or decompiles a
 file, Ctrl+Enter decompiles the selected folder (or this one), Backspace or
 Left goes up, Right goes into a folder. Esc goes back (see app.py).
+
+The same class also chooses WHERE to save the .jack files (Ctrl+Shift+S,
+"save as"): `PickerState(folder, purpose=SAVE)` lists only folders; Enter
+opens one, and Ctrl+Enter / "[save here]" / the "Save here" button picks
+the selected folder (or the one being shown) - see choose_save_folder().
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from typing import List, Optional
 from ..vm_reader import vm_files_in
 
 PAGE = 15  # rows moved by PgUp / PgDn
+OPEN, SAVE = "open", "save"  # what a PickerState chooses: a program, or a folder to save into
 
 
 @dataclass(frozen=True)
@@ -49,8 +55,8 @@ def safe_vm_files(folder: Path) -> List[Path]:
         return []
 
 
-def list_entries(directory: Path) -> List[Entry]:
-    """Parent first, then folders, then .vm files; hidden items are skipped."""
+def list_entries(directory: Path, folders_only: bool = False) -> List[Entry]:
+    """Parent first, then folders, then .vm files (unless folders_only); hidden items are skipped."""
     entries: List[Entry] = []
     if directory.parent != directory:
         entries.append(Entry("parent", directory.parent))
@@ -65,7 +71,7 @@ def list_entries(directory: Path) -> List[Entry]:
         try:
             if child.is_dir():
                 folders.append(Entry("folder", child, len(safe_vm_files(child))))
-            elif child.suffix.lower() == ".vm":
+            elif child.suffix.lower() == ".vm" and not folders_only:
                 files.append(Entry("vm", child))
         except OSError:
             continue
@@ -75,7 +81,8 @@ def list_entries(directory: Path) -> List[Entry]:
 class PickerState:
     """Which folder we're in and which row is selected. Actions return .vm files to open, or None."""
 
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, purpose: str = OPEN):
+        self.purpose = purpose
         self.message = ""
         self.entries: List[Entry] = []
         self.selected = 0
@@ -90,7 +97,7 @@ class PickerState:
 
     def change_directory(self, directory: Path, select: Optional[Path] = None) -> None:
         self.directory = directory
-        self.entries = list_entries(directory)
+        self.entries = list_entries(directory, folders_only=self.purpose == SAVE)
         self.selected = 0
         if select is not None:
             for i, entry in enumerate(self.entries):
@@ -159,6 +166,15 @@ class PickerState:
             self.message = f"No .vm files in {folder.name or folder}/"
             return None
         return files
+
+    def choose_save_folder(self, index: Optional[int] = None, here: bool = False) -> Path:
+        """Save as: the selected folder row (or, with here=True or on "..", the folder being shown)."""
+        if index is not None:
+            self.selected = index
+        entry = self.current
+        if not here and entry is not None and entry.kind == "folder":
+            return entry.path
+        return self.directory
 
     def current_folder_vm_count(self) -> int:
         return len(safe_vm_files(self.directory))

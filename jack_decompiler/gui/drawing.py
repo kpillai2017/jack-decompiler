@@ -62,7 +62,7 @@ class Painter:
     def draw(self) -> None:
         self.window.fill(theme.BACKGROUND)
         self.hit = []
-        if self.mode == "picker":
+        if self.mode in ("picker", "save"):
             self.draw_picker()
         else:
             self.draw_viewer()
@@ -158,17 +158,25 @@ class Painter:
 
     # --- picker ---------------------------------------------------------------------------
     def draw_picker(self) -> None:
-        p = self.picker
+        """The open-a-program picker, or (mode "save") the "save as" folder chooser."""
+        saving = self.mode == "save"
+        p = self.active_picker
         width, _ = self.window.get_size()
-        back = "back to program" if self.viewer else "quit"
-        help_items = [item.format(back=back) for item in theme.PICKER_HELP]
-        status = [(p.message, "error")] if p.message else [("Choose a .vm file, or a folder of .vm files", "normal")]
+        if saving:
+            count = len(self.viewer.class_names)
+            help_items = list(theme.SAVE_HELP)
+            status = [(f"Choose the folder to save {count} .jack file{'s' if count != 1 else ''} in", "normal"),
+                      (f"Save here: {p.directory}", "dim")]
+        else:
+            back = "back to program" if self.viewer else "quit"
+            help_items = [item.format(back=back) for item in theme.PICKER_HELP]
+            status = [(p.message, "error")] if p.message else [("Choose a .vm file, or a folder of .vm files", "normal")]
         bottom = self.draw_bottom_boxes(status, help_items)
 
         button_h = self.ui_line + 10
         buttons_y = bottom - GAP - button_h
         rect = pygame.Rect(MARGIN, MARGIN, width - 2 * MARGIN, buttons_y - GAP - MARGIN)
-        area = self.box(rect, f"OPEN  {p.directory}")
+        area = self.box(rect, f"{'SAVE TO' if saving else 'OPEN'}  {p.directory}")
         rows = max(1, area.height // self.ui_line)
         first = max(0, min(p.selected - rows // 2, len(p.entries) - rows))
         previous = self.window.get_clip()
@@ -179,22 +187,29 @@ class Painter:
             line_rect = pygame.Rect(area.x - 2, y, area.width + 4, self.ui_line)
             if index == p.selected:
                 pygame.draw.rect(self.window, theme.SELECTED, line_rect, border_radius=3)
-            colour = "dim" if entry.kind == "folder" and not entry.vm_count else "normal"
+            colour = "dim" if entry.kind == "folder" and not entry.vm_count and not saving else "normal"
             self.text(self.ui_font, entry.label, colour, (area.x + 4, y))
             self.hit.append((line_rect, "row", index))
-            if entry.kind == "folder" and entry.vm_count:
-                tag = f"[decompile {entry.vm_count} file{'s' if entry.vm_count != 1 else ''}]"
+            tag = action = ""
+            if saving and entry.kind == "folder":
+                tag, action = "[save here]", "save-entry"
+            elif entry.kind == "folder" and entry.vm_count:
+                tag, action = f"[decompile {entry.vm_count} file{'s' if entry.vm_count != 1 else ''}]", "decompile-entry"
+            if tag:
                 tag_w = self.ui_font.size(tag)[0]
                 tag_rect = pygame.Rect(area.right - tag_w - 6, y, tag_w + 4, self.ui_line)
                 self.text(self.ui_font, tag, "title", (tag_rect.x, y))
-                self.hit.append((tag_rect, "decompile-entry", index))
+                self.hit.append((tag_rect, action, index))
         self.window.set_clip(previous)
 
-        count = p.current_folder_vm_count()
-        label = f"Decompile this folder ({count} .vm)" if count else "Decompile this folder"
+        if saving:
+            buttons = (("Save here", "save-here", True), ("Back", "back", True))
+        else:
+            count = p.current_folder_vm_count()
+            label = f"Decompile this folder ({count} .vm)" if count else "Decompile this folder"
+            buttons = ((label, "decompile-here", bool(count)), ("Back" if self.viewer else "Quit", "back", True))
         x = MARGIN
-        for text, action, enabled in ((label, "decompile-here", bool(count)),
-                                      ("Back" if self.viewer else "Quit", "back", True)):
+        for text, action, enabled in buttons:
             w = self.ui_font.size(text)[0] + 24
             button = pygame.Rect(x, buttons_y, w, button_h)
             pygame.draw.rect(self.window, theme.BOX_HEADER if enabled else theme.BOX, button, border_radius=5)

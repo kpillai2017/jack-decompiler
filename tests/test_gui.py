@@ -196,3 +196,104 @@ def test_find_compiler_gui(tmp_path):
     assert compiler_link.find_compiler_gui({"HOME": str(tmp_path)}, which=lambda _: None) is None
     assert "not found" in compiler_link.open_in_compiler(Path("x"), None)
     assert "Couldn't start" in compiler_link.open_in_compiler(Path("x"), [str(tmp_path / "missing-command")])
+
+
+# --- "save as": choosing where the .jack files go ------------------------------------
+def test_save_picker_lists_only_folders_and_chooses_one(games):
+    from jack_decompiler.gui.picker import SAVE
+
+    (games / "pong" / "out").mkdir()
+    p = PickerState(games / "pong", purpose=SAVE)
+    assert [e.label for e in p.entries][1:] == ["out/"]  # no .vm files
+    assert p.choose_save_folder() == games / "pong" / "out"  # the selected folder row
+    assert p.choose_save_folder(here=True) == (games / "pong").resolve()  # the folder being shown
+    p.home()  # on ".."
+    assert p.choose_save_folder() == (games / "pong").resolve()
+
+
+def test_viewer_save_as_remembers_the_folder(games):
+    v = ViewerState([games / "pong"])
+    out = games / "chosen" / "jack"
+    assert v.save_as(out) == out and sorted(f.name for f in out.iterdir()) == [
+        "Ball.jack", "Bat.jack", "Main.jack", "PongGame.jack"]
+    assert v.output_folder == out and v.save_as_start() == out
+    assert v.save() == out  # Ctrl+S keeps using the chosen folder
+    assert not (games / "pong" / "Ball.jack").exists()
+
+
+def test_viewer_save_as_keeps_the_old_folder_when_it_fails(games):
+    (games / "taken").mkdir()
+    (games / "taken" / "Bat.jack").write_text("class Bat {}\n")
+    v = ViewerState([games / "pong"])
+    assert v.save_as(games / "taken") is None and "won't overwrite" in v.notice
+    assert v.output_folder is None
+
+
+def test_viewer_output_folder_and_force(games):
+    out = games / "out"
+    out.mkdir()
+    (out / "Bat.jack").write_text("class Bat {}\n")
+    assert ViewerState([games / "pong"], output_folder=out).save() is None
+    assert ViewerState([games / "pong"], output_folder=out, force=True).save() == out
+    assert (out / "Bat.jack").read_text() != "class Bat {}\n"  # overwritten, as asked
+
+
+def test_app_ctrl_shift_s_opens_the_folder_chooser_and_saves(games):
+    (games / "dest").mkdir()
+    app = App([games / "pong"], window_size=(1000, 700))
+    press(app, pygame.K_s, CTRL | SHIFT)
+    assert app.mode == "save" and app.save_picker.directory == (games / "pong").resolve()
+    app.draw()
+    assert any(action == "save-here" for _, action, _ in app.hit)
+    press(app, pygame.K_ESCAPE)  # Esc: back to the program, nothing saved
+    assert app.mode == "viewer" and not (games / "pong" / "Ball.jack").exists()
+
+    press(app, pygame.K_s, CTRL | SHIFT)
+    press(app, pygame.K_BACKSPACE)  # up to games/ (pong/ stays selected) ...
+    press(app, pygame.K_HOME)
+    press(app, pygame.K_DOWN)  # ... dest/ is the first folder
+    assert app.save_picker.current.label == "dest/"
+    press(app, pygame.K_RETURN, CTRL)  # save in the selected folder
+    assert app.mode == "viewer" and (games / "dest" / "Ball.jack").is_file()
+    assert "Saved 4 .jack files" in app.viewer.notice
+    press(app, pygame.K_s, CTRL)  # Ctrl+S now saves there too
+    assert app.viewer.saved_to == games / "dest"
+
+
+def test_app_save_chooser_mouse(games):
+    (games / "dest").mkdir()
+    app = App([games / "pong"], window_size=(1000, 700))
+    press(app, pygame.K_s, CTRL | SHIFT)
+    press(app, pygame.K_BACKSPACE)
+    app.draw()
+    row = next(rect for rect, action, i in app.hit if action == "row" and app.save_picker.entries[i].label == "dest/")
+    app.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=row.center))  # click: into dest/
+    assert app.save_picker.directory == (games / "dest").resolve()
+    app.draw()
+    button = next(rect for rect, action, _ in app.hit if action == "save-here")
+    app.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=button.center))
+    assert app.mode == "viewer" and (games / "dest" / "PongGame.jack").is_file()
+
+
+def test_app_output_folder_applies_to_every_program(games):
+    out = games / "out"
+    app = App([games / "pong"], output_folder=out)
+    press(app, pygame.K_s, CTRL)
+    assert (out / "Ball.jack").is_file()
+    app.open_program([games / "square-game"])
+    press(app, pygame.K_s, CTRL)
+    assert (out / "SquareGame.jack").is_file()
+
+
+def test_cli_passes_the_output_folder_to_the_gui(games, monkeypatch):
+    from jack_decompiler import main as main_module
+    from jack_decompiler.gui import app as app_module
+
+    seen = []
+    monkeypatch.setattr(app_module, "run_gui", lambda files, **kw: seen.append((list(files), kw)) or 0)
+    out = games / "out"
+    assert main_module.main(["--gui", str(games / "pong"), "-o", str(out), "--force"]) == 0
+    assert seen[-1][1]["output_folder"] == out and seen[-1][1]["force"] is True
+    assert main_module.main(["-o", str(out)]) == 0  # no .vm files: the GUI, saving in out/
+    assert seen[-1] == ([], {"rename_functions": True, "output_folder": out, "force": False})
+    assert not out.exists()

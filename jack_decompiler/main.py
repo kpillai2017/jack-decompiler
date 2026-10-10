@@ -5,6 +5,8 @@ main.py - The command line: `jackdecomp` / `python -m jack_decompiler`.
     jackdecomp                          open the GUI (choose a program there)
     jackdecomp games/pong               open the GUI showing games/pong
     jackdecomp games/pong -o out        write out/*.jack (no window)
+    jackdecomp --gui games/pong -o out  open the GUI; Ctrl+S saves in out/
+    jackdecomp -o out                   choose a program in the GUI; Ctrl+S saves in out/
     jackdecomp Main.vm --stdout         print the Jack code
     jackdecomp games/pong --verify      recompile and compare with the VM
 
@@ -33,11 +35,13 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="With no -o/--stdout/--verify, the GUI opens (Ctrl+Q quits, Ctrl+O opens another program).",
     )
     parser.add_argument("paths", nargs="*", help=".vm files and/or folders of .vm files (one program)")
-    parser.add_argument("-o", "--out", metavar="FOLDER", help="write one .jack file per class into FOLDER")
+    parser.add_argument("-o", "--out", metavar="FOLDER",
+                        help="write one .jack file per class into FOLDER (with --gui, or no .vm files given: "
+                             "the folder the GUI saves in)")
     parser.add_argument("--stdout", action="store_true", help="print the decompiled Jack code")
     parser.add_argument("--verify", action="store_true",
                         help="recompile the Jack code and check it gives the same VM code")
-    parser.add_argument("--force", action="store_true", help="with -o: overwrite existing .jack files")
+    parser.add_argument("--force", action="store_true", help="with -o: overwrite existing .jack files (also in the GUI)")
     parser.add_argument("--keep-function-names", action="store_true",
                         help="don't rename meaningless function names such as f1 or func_2")
     parser.add_argument("--gui", action="store_true", help="open the GUI even with -o/--stdout/--verify")
@@ -47,13 +51,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
-    headless = args.out or args.stdout or args.verify
+    headless = args.stdout or args.verify or (args.out and args.paths)
     if not headless or args.gui:
         if args.force and not args.out:
             print("note: --force only matters together with -o", file=sys.stderr)
         from .gui.app import run_gui  # pygame is only needed for the GUI
 
-        return run_gui([Path(p) for p in args.paths], rename_functions=not args.keep_function_names)
+        return run_gui([Path(p) for p in args.paths], rename_functions=not args.keep_function_names,
+                       output_folder=Path(args.out) if args.out else None, force=args.force)
     if not args.paths:
         print("jackdecomp: give at least one .vm file or folder (or no options at all for the GUI)", file=sys.stderr)
         return 2

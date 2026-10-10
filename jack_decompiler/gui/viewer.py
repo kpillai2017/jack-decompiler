@@ -22,7 +22,8 @@ from . import compiler_link
 
 class ViewerState:
     def __init__(self, files: Sequence[Path], rename_functions: bool = True,
-                 find_compiler: Callable[[], Optional[List[str]]] = compiler_link.find_compiler_gui):
+                 find_compiler: Callable[[], Optional[List[str]]] = compiler_link.find_compiler_gui,
+                 output_folder: Optional[Path] = None, force: bool = False):
         self.inputs = [Path(f) for f in files]  # what was asked for: files and/or folders
         self.files: List[Path] = list(self.inputs)  # ...turned into .vm files by load()
         self.rename_functions = rename_functions
@@ -35,6 +36,10 @@ class ViewerState:
         self.checks: Dict[str, ClassCheck] = {}
         self.notice = ""
         self.saved_to: Optional[Path] = None
+        # Where Ctrl+S / Ctrl+J save: None = the default (next to the .vm files,
+        # see output.default_folder). Set by -o, or by choosing a folder (save_as).
+        self.output_folder: Optional[Path] = Path(output_folder).expanduser() if output_folder else None
+        self.force = force  # overwrite .jack files we didn't write (only from -o --force)
         self.load()
 
     # --- loading ----------------------------------------------------------
@@ -131,19 +136,39 @@ class ViewerState:
         self.show_vm = not self.show_vm
 
     # --- actions -------------------------------------------------------------------
+    def save_folder(self) -> Optional[Path]:
+        """Where Ctrl+S saves: the chosen folder, else next to the .vm files (when that's safe)."""
+        if self.output_folder is not None:
+            return self.output_folder
+        if self.result is None or not self.files:
+            return None
+        return default_folder(self.result, self.files[0].parent)
+
+    def save_as_start(self) -> Path:
+        """The folder the "save as" chooser opens in."""
+        start = self.saved_to or self.save_folder() or (self.files[0].parent if self.files else Path.cwd())
+        return Path(start)
+
     def save(self, folder: Optional[Path] = None) -> Optional[Path]:
-        """Ctrl+S: write the .jack files (next to the .vm files when that's safe)."""
+        """Ctrl+S: write the .jack files into `folder`, or save_folder()."""
         if self.result is None:
             self.notice = "Nothing to save"
             return None
-        target = Path(folder) if folder else default_folder(self.result, self.files[0].parent)
+        target = Path(folder) if folder else self.save_folder()
         try:
-            written = save_result(self.result, target)
+            written = save_result(self.result, target, force=self.force)
         except (FileExistsError, OSError) as problem:
             self.notice = f"Not saved: {problem}"
             return None
         self.saved_to = target
         self.notice = f"Saved {len(written)} .jack file{'s' if len(written) != 1 else ''} to {target}"
+        return target
+
+    def save_as(self, folder: Path) -> Optional[Path]:
+        """Ctrl+Shift+S: save into a folder the user chose; Ctrl+S and Ctrl+J then use it too."""
+        target = self.save(Path(folder))
+        if target is not None:
+            self.output_folder = target
         return target
 
     def run_verify(self) -> List[ClassCheck]:
