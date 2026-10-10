@@ -9,6 +9,6 @@ from .decompiler import ClassResult, DecompileResult, decompile_files, decompile
 from .engine import DecompileError
 from .vm_reader import VMSyntaxError
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = ["ClassResult", "DecompileError", "DecompileResult", "VMSyntaxError", "decompile_files",
            "decompile_functions", "decompile_text", "__version__"]

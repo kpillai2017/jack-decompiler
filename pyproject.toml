@@ -10,7 +10,7 @@
 
 [project]
 name = "jack-decompiler"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turn nand2tetris Jack VM code (.vm) back into readable Jack source (.jack), with a pygame GUI in the style of jackvm-py."
 readme = "README.md"
 requires-python = ">=3.9"
