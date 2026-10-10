@@ -1,0 +1,51 @@
+# What git should NOT track. One pattern per line; a trailing "/" means
+# "a folder". Everything here can be re-created, or is personal to your machine.
+
+# --- Python byte-code (made automatically when Python imports a module) ---
+__pycache__/
+*.py[cod]
+
+# --- Virtual environments (re-create them with: python3 -m venv .venv) ---
+.venv/
+venv/
+env/
+ENV/
+
+# direnv (https://direnv.net): .envrc is a personal per-machine setting, and
+# .direnv/ holds the environment it builds.
+.envrc
+.direnv/
+
+# --- Packaging / build output (from `pip install -e .` or `python -m build`) ---
+*.egg-info/
+build/
+dist/
+*.egg
+.eggs/
+pip-wheel-metadata/
+
+# --- Test, coverage and linter caches ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# --- Editors and operating systems ---
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# --- Scratch files left by AI-assistant tooling ---
+tmp_rovo_*
+
+# --- Output you made while trying the decompiler on the sample programs ---
+tests/fixtures/**/*.jack
+tests/fixtures/**/decompiled/

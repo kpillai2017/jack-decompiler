@@ -1,0 +1,55 @@
+# Project settings.
+#
+# You don't need to "install" this project to use it - running
+# `python3 -m jack_decompiler ...` from this folder works. This file only:
+#   * describes the project (name, version, dependencies), and
+#   * tells pytest where to find the code and the tests.
+#
+# Optional: `pip install -e .` installs a `jackdecomp` command you can run
+# from any folder (e.g. `jackdecomp ~/jackvm-py/games/pong`).
+
+[project]
+name = "jack-decompiler"
+version = "0.1.0"
+description = "Turn nand2tetris Jack VM code (.vm) back into readable Jack source (.jack), with a pygame GUI in the style of jackvm-py."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["pygame>=2.6.1"]
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["nand2tetris", "jack", "decompiler", "virtual machine", "pygame", "education"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Education",
+    "Topic :: Education",
+    "Topic :: Software Development :: Disassemblers",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/kpillai2017/jack-decompiler"
+"Repository" = "https://github.com/kpillai2017/jack-decompiler.git"
+"Issues" = "https://github.com/kpillai2017/jack-decompiler/issues"
+"jackvm-py" = "https://github.com/kpillai2017/jackvm-py"
+"nand2tetris" = "https://www.nand2tetris.org"
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+jackdecomp = "jack_decompiler.main:main"
+
+# The same entry-point group jackvm-py and jack-compiler use to find each other.
+[project.entry-points.jack_tools]
+decompiler = "jack_decompiler.main:main"
+
+[build-system]
+requires = ["setuptools>=77"]  # 77+ understands `license = "MIT"`
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["jack_decompiler", "jack_decompiler.gui"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

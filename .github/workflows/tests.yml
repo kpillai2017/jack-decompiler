@@ -1,0 +1,52 @@
+# GitHub Actions: run the test suite automatically on every push and pull
+# request. Results appear in the "Actions" tab of the repository on GitHub.
+#
+# No real screen is needed: tests/conftest.py tells pygame to use SDL's
+# "dummy" video and audio drivers.
+
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.9", "3.11", "3.13"]
+        include:
+          - os: macos-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.13"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e .
+
+      - name: Fetch jackvm-py (its games are decompiled and checked too)
+        shell: bash
+        run: |
+          git clone --quiet --depth 1 https://github.com/kpillai2017/jackvm-py.git "$RUNNER_TEMP/jackvm-py" \
+            && echo "JACKVM_GAMES=$RUNNER_TEMP/jackvm-py/games" >> "$GITHUB_ENV" \
+            || echo "jackvm-py not available: those tests will be skipped"
+
+      - name: Run the tests
+        run: python -m pytest -v
+
+      - name: Smoke-test the command line (round trip of a sample program)
+        run: jackdecomp tests/fixtures/pong --verify --stdout
