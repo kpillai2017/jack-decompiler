@@ -77,7 +77,7 @@ class Main {
 }""", "Main")
     lines = body_lines(result.classes["Main"].jack)
     assert "var int i, j, sum;" in lines
-    assert "function int total(Array array, int arg1) {" in lines
+    assert "function int total(Array array, int count) {" in lines  # while (i < count)
 
 
 def test_void_detection():

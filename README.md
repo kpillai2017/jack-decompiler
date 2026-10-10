@@ -28,7 +28,11 @@ push this 0
   guesses names from how each one is used. For example, `getScore()`
   returning `this 3` names field 3 `score`, a counter in `while (v < n)
   { ... let v = v + 1; }` becomes `i`, and `let a[i] = Alien.new(...)`
-  names the array `aliens`.
+  names the array `aliens`. `if (x > k) { let x = k; }` makes `k` `maxX`,
+  a parameter always given `ball.getX()` is `x` (and the one after it `y`),
+  and `16384 + ...`, `c - 48` and `return v;` give `address`, `digit` and
+  `result`. Names then flow between callers, constructors and fields over
+  a few rounds: constructor parameters follow their fields (`x` / `aX`).
   Meaningless subroutine names such as `f1` are renamed too when the body
   makes it obvious (`getSize`, `setSize`, `dispose`, `new`).
 * **Real Jack.** It infers types (`Ball`, `Array`, `boolean`, `char`, ...),
