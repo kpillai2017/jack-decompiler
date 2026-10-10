@@ -37,8 +37,8 @@ VIEWER_HELP = ["Ctrl+O open", "Ctrl+D VM panel", "Ctrl+R reload", "Ctrl+N/P next
                "Ctrl+Shift+S save as...", "Ctrl+T test round trip", "Ctrl+J open in compiler", "Esc picker", "Ctrl+Q quit"]
 PICKER_HELP = ["Enter: open", "Ctrl+Enter: decompile folder", "Backspace: up", "Right: into folder",
                "Esc: {back}", "Ctrl+Q: quit"]
-SAVE_HELP = ["Enter: open folder", "Ctrl+Enter: save in selected folder", "Backspace: up", "Right: into folder",
-             "Esc: back to program", "Ctrl+Q: quit"]
+SAVE_HELP = ["Enter: open folder", "Ctrl+Enter: save in selected folder", "Ctrl+N: new folder", "Backspace: up",
+             "Right: into folder", "Esc: back to program", "Ctrl+Q: quit"]
 FONT_NAMES = "menlo,consolas,dejavusansmono,couriernew,monospace"
 UI_FONT_SIZE = 13
 CODE_FONT_SIZE = 14

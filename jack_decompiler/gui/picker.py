@@ -21,6 +21,8 @@ The same class also chooses WHERE to save the .jack files (Ctrl+Shift+S,
 "save as"): `PickerState(folder, purpose=SAVE)` lists only folders; Enter
 opens one, and Ctrl+Enter / "[save here]" / the "Save here" button picks
 the selected folder (or the one being shown) - see choose_save_folder().
+Ctrl+N / "New folder" makes a folder: type its name, Enter creates it
+(see create_folder()), Esc stops.
 """
 
 from __future__ import annotations
@@ -33,6 +35,22 @@ from ..vm_reader import vm_files_in
 
 PAGE = 15  # rows moved by PgUp / PgDn
 OPEN, SAVE = "open", "save"  # what a PickerState chooses: a program, or a folder to save into
+
+
+NAME_LIMIT = 100  # longest folder name the "New folder" box takes
+
+
+def folder_name_problem(name: str) -> str:
+    """Why `name` can't be a new folder ("" if it can)."""
+    if not name:
+        return "Type a name for the new folder"
+    if "/" in name or "\\" in name or "\0" in name:
+        return "A folder name can't contain / or \\"
+    if name in (".", ".."):
+        return f"{name} isn't a folder name"
+    if name.startswith("."):
+        return "Names starting with . are hidden here - choose another"
+    return ""
 
 
 @dataclass(frozen=True)
@@ -83,6 +101,7 @@ class PickerState:
 
     def __init__(self, directory: Path, purpose: str = OPEN):
         self.purpose = purpose
+        self.naming: Optional[str] = None  # the new folder's name while it's being typed (SAVE only)
         self.message = ""
         self.entries: List[Entry] = []
         self.selected = 0
@@ -166,6 +185,50 @@ class PickerState:
             self.message = f"No .vm files in {folder.name or folder}/"
             return None
         return files
+
+    # --- "New folder" (save mode): name a folder, then create it -------------
+    def start_new_folder(self) -> None:
+        """Ctrl+N / the "New folder" button: start typing a name."""
+        self.naming = ""
+        self.message = ""
+
+    def type_name(self, text: str) -> None:
+        if self.naming is not None:
+            self.naming = (self.naming + text.replace("\n", "").replace("\r", ""))[:NAME_LIMIT]
+
+    def erase_name(self) -> None:
+        if self.naming:
+            self.naming = self.naming[:-1]
+
+    def cancel_new_folder(self) -> None:
+        self.naming = None
+        self.message = ""
+
+    def create_folder(self) -> Optional[Path]:
+        """
+        Make the typed folder in the folder being shown and select it.
+        Returns its path, or None (with self.message saying why; typing goes on).
+        An existing folder of that name is simply selected.
+        """
+        if self.naming is None:
+            return None
+        name = self.naming.strip()
+        problem = folder_name_problem(name)
+        folder = self.directory / name
+        if not problem and folder.exists() and not folder.is_dir():
+            problem = f"There's already a file called {name}"
+        if not problem:
+            try:
+                folder.mkdir(exist_ok=True)
+            except OSError as error:
+                problem = f"Can't make {name}/: {error.strerror or error}"
+        if problem:
+            self.message = problem
+            return None
+        self.naming = None
+        self.message = ""
+        self.change_directory(self.directory, select=folder)  # list it, selected
+        return folder
 
     def choose_save_folder(self, index: Optional[int] = None, here: bool = False) -> Path:
         """Save as: the selected folder row (or, with here=True or on "..", the folder being shown)."""

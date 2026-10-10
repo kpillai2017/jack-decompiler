@@ -118,9 +118,12 @@ To save somewhere else, start with `-o FOLDER` (e.g. `jackdecomp -o out/`
 or `jackdecomp --gui games/pong -o out/`), or press **Ctrl+Shift+S** and
 choose a folder: **Enter** opens a folder, and `[save here]` next to a
 folder, **Ctrl+Enter**, or the *Save here* button saves there (**Esc** goes
-back without saving). After that, Ctrl+S and Ctrl+J save in that folder too.
+back without saving). To make a folder, press **Ctrl+N** (or *New folder*),
+type its name and press **Enter**: it's created and selected. After that, Ctrl+S and Ctrl+J save in that folder too.
 Hand-written `.jack` files are never overwritten there either (unless you
 started with `-o FOLDER --force`).
+
+![The "save as" folder chooser: folders with [save here] next to them, and a new folder being named](docs/save-as.png)
 
 ### Opening it from jackvm (Ctrl+U)
 

@@ -167,6 +167,9 @@ class Painter:
             help_items = list(theme.SAVE_HELP)
             status = [(f"Choose the folder to save {count} .jack file{'s' if count != 1 else ''} in", "normal"),
                       (f"Save here: {p.directory}", "dim")]
+            if p.naming is not None:
+                status = [(f"New folder: {p.naming}_", "title"),
+                          (p.message, "error") if p.message else ("Enter: create   Esc: cancel", "dim")]
         else:
             back = "back to program" if self.viewer else "quit"
             help_items = [item.format(back=back) for item in theme.PICKER_HELP]
@@ -203,7 +206,8 @@ class Painter:
         self.window.set_clip(previous)
 
         if saving:
-            buttons = (("Save here", "save-here", True), ("Back", "back", True))
+            buttons = (("Save here", "save-here", True), ("Back", "back", True),
+                       ("Create" if p.naming is not None else "New folder", "new-folder", True))
         else:
             count = p.current_folder_vm_count()
             label = f"Decompile this folder ({count} .vm)" if count else "Decompile this folder"

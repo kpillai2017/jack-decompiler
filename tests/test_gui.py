@@ -297,3 +297,67 @@ def test_cli_passes_the_output_folder_to_the_gui(games, monkeypatch):
     assert main_module.main(["-o", str(out)]) == 0  # no .vm files: the GUI, saving in out/
     assert seen[-1] == ([], {"rename_functions": True, "output_folder": out, "force": False})
     assert not out.exists()
+
+
+# --- "New folder" in the save-as chooser ---------------------------------------------
+def test_picker_new_folder_rules(games):
+    from jack_decompiler.gui.picker import SAVE, folder_name_problem
+
+    assert folder_name_problem("out") == ""
+    for bad in ("", "a/b", "a\\b", ".", "..", ".hidden"):
+        assert folder_name_problem(bad), bad
+    p = PickerState(games, purpose=SAVE)
+    assert p.create_folder() is None  # not naming: nothing happens
+    p.start_new_folder()
+    p.type_name("a/b")
+    assert p.create_folder() is None and "can't contain" in p.message and p.naming == "a/b"  # keep typing
+    for _ in range(3):
+        p.erase_name()
+    p.type_name(" jack out ")
+    assert p.create_folder() == games / "jack out" and (games / "jack out").is_dir()
+    assert p.naming is None and p.current.path == games / "jack out"
+    p.start_new_folder()
+    p.type_name("jack out")
+    assert p.create_folder() == games / "jack out"  # already there: just selected
+    (games / "afile").write_text("")
+    p.start_new_folder()
+    p.type_name("afile")
+    assert p.create_folder() is None and "already a file" in p.message
+    p.cancel_new_folder()
+    assert p.naming is None and p.message == ""
+
+
+def test_app_new_folder_by_keys_then_save(games):
+    app = App([games / "pong"], window_size=(1000, 700))
+    press(app, pygame.K_s, CTRL | SHIFT)
+    press(app, pygame.K_n, CTRL)
+    assert app.save_picker.naming == ""
+    app.handle(pygame.event.Event(pygame.TEXTINPUT, text="jackx"))
+    press(app, pygame.K_BACKSPACE)  # edits the name, doesn't go up
+    assert app.save_picker.naming == "jack" and app.save_picker.directory == (games / "pong").resolve()
+    app.draw()
+    press(app, pygame.K_ESCAPE)  # Esc stops naming, stays in the chooser
+    assert app.mode == "save" and app.save_picker.naming is None
+    press(app, pygame.K_n, CTRL)
+    app.handle(pygame.event.Event(pygame.TEXTINPUT, text="src"))
+    press(app, pygame.K_RETURN)
+    new = (games / "pong" / "src").resolve()
+    assert new.is_dir() and app.save_picker.current.path == new and app.mode == "save"
+    press(app, pygame.K_RETURN, CTRL)  # save in the new (selected) folder
+    assert (new / "Ball.jack").is_file() and app.mode == "viewer"
+
+
+def test_app_new_folder_button(games):
+    app = App([games / "pong"], window_size=(1000, 700))
+    press(app, pygame.K_s, CTRL | SHIFT)
+
+    def click(action):
+        app.draw()
+        rect = next(r for r, a, _ in app.hit if a == action)
+        app.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=rect.center))
+
+    click("new-folder")
+    assert app.save_picker.naming == ""
+    app.handle(pygame.event.Event(pygame.TEXTINPUT, text="out"))
+    click("new-folder")  # now "Create"
+    assert (games / "pong" / "out").is_dir() and app.save_picker.naming is None

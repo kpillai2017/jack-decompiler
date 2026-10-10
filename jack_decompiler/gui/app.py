@@ -26,7 +26,8 @@ Hold Ctrl (or Cmd on a Mac) for the shortcuts, as in jackvm:
 In the picker: Enter opens/decompiles, Ctrl+Enter decompiles the folder,
 Backspace/Left goes up, Right goes in, Esc goes back (or quits).
 In the "save as" folder chooser: Enter opens a folder, Ctrl+Enter (or
-"[save here]" / the "Save here" button) saves there, Esc goes back.
+"[save here]" / the "Save here" button) saves there, Ctrl+N (or "New
+folder") makes a folder - type its name, Enter creates it - and Esc goes back.
 
 All the decisions live in picker.py and viewer.py; this file only draws
 them and turns events into method calls.
@@ -134,6 +135,9 @@ class App(Painter):
             if self.mode == "picker":
                 return self.picker_key(event)
             return self.save_key(event) if self.mode == "save" else self.viewer_key(event)
+        if event.type == pygame.TEXTINPUT and self.mode == "save" and self.save_picker:
+            self.save_picker.type_name(event.text)  # ignored unless a new folder is being named
+            return KEEP
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             return self.click(event.pos)
         if event.type == pygame.MOUSEWHEEL and self.mode == "viewer" and self.viewer:
@@ -174,6 +178,12 @@ class App(Painter):
         self._update_caption()
         return KEEP
 
+    def start_new_folder(self) -> bool:
+        """Ctrl+N / "New folder" in the folder chooser: type a name, Enter creates it."""
+        self.save_picker.start_new_folder()
+        pygame.key.start_text_input()  # so typing arrives as TEXTINPUT events
+        return KEEP
+
     def save_into(self, folder: Path) -> bool:
         """The folder chooser picked `folder`: save there and go back to the program."""
         if self.viewer is not None:
@@ -204,6 +214,16 @@ class App(Painter):
     def save_key(self, event) -> bool:
         """Keys in the "save as" folder chooser."""
         p, key, ctrl = self.save_picker, event.key, is_ctrl(event.mod)
+        if p.naming is not None:  # typing a new folder's name (the text comes as TEXTINPUT)
+            if key == pygame.K_ESCAPE:
+                p.cancel_new_folder()
+            elif key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                p.create_folder()
+            elif key == pygame.K_BACKSPACE:
+                p.erase_name()
+            return KEEP
+        if ctrl and key == pygame.K_n:
+            return self.start_new_folder()
         if key == pygame.K_ESCAPE:
             return self.leave_save_picker()
         if key in (pygame.K_RETURN, pygame.K_KP_ENTER):
@@ -284,6 +304,10 @@ class App(Painter):
                     self.open_program(files)
             elif action == "save-entry":
                 return self.save_into(self.save_picker.choose_save_folder(index))
+            elif action == "new-folder":
+                if self.save_picker.naming is None:
+                    return self.start_new_folder()
+                self.save_picker.create_folder()
             elif action == "save-here":
                 return self.save_into(self.save_picker.choose_save_folder(here=True))
             elif action == "decompile-entry":
