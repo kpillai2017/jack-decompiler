@@ -2,8 +2,9 @@
 structure.py - Turn the jumps of a VM function back into if / while.
 =====================================================================
 
-Jack has only two kinds of control flow: `if (...) {...} else {...}` and
-`while (...) {...}`. Jack compilers turn them into labels and jumps. The
+Standard Jack has two kinds of control flow: `if (...) {...} else {...}` and
+`while (...) {...}`. Extended Jack also has for/break/continue, recovered below.
+Jack compilers turn these constructs into labels and jumps. The
 nand2tetris compiler, for example, produces:
 
     if (c) { A } else { B }          while (c) { A }
@@ -18,8 +19,9 @@ nand2tetris compiler, for example, produces:
         <B>
     label IF_END0
 
-The structurer does NOT rely on the label names. It looks at the SHAPE of
-the jumps, so code from other Jack compilers works too:
+Standard if/while recovery looks at the SHAPE of jumps, not their label names.
+The companion for-loop update pattern additionally uses its FOR$ label convention.
+Code from standard Jack compilers works too:
 
   * A label that a later `goto` jumps back to starts a loop. If the loop
     begins with a condition that jumps past the end, it's `while (cond)`;
@@ -43,7 +45,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 
 from .engine import DecompileError, Engine, negate
-from .jack_ast import Const, Stmt, Unary, While, If, Expr
+from .jack_ast import Const, Stmt, Unary, While, For, Break, Continue, Let, If, Expr
 from .vm_reader import Instr, VMFunction
 
 
@@ -59,11 +61,14 @@ def detect_kind(body: List[Instr]) -> Tuple[str, int, int]:
 
 
 class Structurer:
-    def __init__(self, function: VMFunction):
+    def __init__(self, function: VMFunction, base_first: Optional[bool] = None):
         self.function = function
         self.code = function.body
+        self.base_first = (any(ins.op == "label" and "$" in ins.arg1 for ins in self.code)
+                           if base_first is None else base_first)
         self.labels: Dict[str, int] = {}
         self.jumps_to: Dict[str, List[int]] = {}
+        self.loops = []  # innermost (break label, continue label)
         for index, ins in enumerate(self.code):
             if ins.op == "label":
                 self.labels[ins.arg1] = index
@@ -77,7 +82,7 @@ class Structurer:
     def block(self, lo: int, hi: int) -> List[Stmt]:
         """Statements for the instructions code[lo:hi]."""
         out: List[Stmt] = []
-        engine = Engine(out)
+        engine = Engine(out, base_first=self.base_first)
         i = lo
         while i < hi:
             ins = self.code[i]
@@ -95,7 +100,14 @@ class Structurer:
                 statement, i = self.conditional(i, cond, hi)
                 out.append(statement)
             elif ins.op == "goto":
-                raise DecompileError("a goto that isn't part of an if or a while (Jack has no goto/break)", ins)
+                engine.finish(ins)
+                if self.loops and ins.arg1 == self.loops[-1][0]:
+                    out.append(Break())
+                elif self.loops and ins.arg1 == self.loops[-1][1]:
+                    out.append(Continue())
+                else:
+                    raise DecompileError("a goto that isn't part of an if or a while/for loop", ins)
+                i += 1
             elif ins.op == "function":
                 raise DecompileError("unexpected 'function' inside a function", ins)
             else:
@@ -112,25 +124,42 @@ class Structurer:
             if self.code[j].op == "if-goto":
                 raise DecompileError("a conditional jump backwards (a do-while loop can't be written in Jack)",
                                      self.code[j])
-        if len(back) > 1:
-            raise DecompileError(f"{len(back)} jumps back to loop label {header.arg1} (like 'continue' - not in Jack)",
-                                 self.code[back[1]])
-        end = back[0]  # the `goto header` closing the loop
+        end = max(back)  # final unconditional back edge closes the loop
         found = self.scan_condition(start + 1, end)
+        cond, body_start = Unary("~", Const(0)), start + 1
+        exit_label = None
+        has_condition = False
         if found is not None:
-            cond, k = found
+            test, k = found
             exit_at = self.labels[self.code[k].arg1]
             if exit_at > end and all(self.code[x].op == "label" for x in range(end + 1, exit_at)):
-                body = self.block(k + 1, end)
-                return While(negate(cond), body), end + 1
-        # No exit condition at the top: `while (true) { ... }`.
-        body = self.block(start + 1, end)
-        return While(Unary("~", Const(0)), body), end + 1
+                cond, body_start = negate(test), k + 1
+                exit_label = self.code[k].arg1
+                has_condition = True
+        if exit_label is None and end + 1 < len(self.code) and self.code[end + 1].op == "label":
+            exit_label = self.code[end + 1].arg1
+        # The companion compiler emits a separate update marker even when the
+        # update is empty. Validate its position; ordinary loops stay label-agnostic.
+        updates = [x for x in range(body_start, end) if self.code[x].op == "label"
+                   and self.code[x].arg1.startswith("FORUPDATE$")]
+        update_at = updates[-1] if header.arg1.startswith("FOR$") and updates else None
+        continue_label = self.code[update_at].arg1 if update_at is not None else header.arg1
+        self.loops.append((exit_label, continue_label))
+        try:
+            body = self.block(body_start, update_at if update_at is not None else end)
+            update = self.block(update_at + 1, end) if update_at is not None else []
+        finally:
+            self.loops.pop()
+        if update_at is not None:
+            if len(update) > 1 or (update and not isinstance(update[0], Let)):
+                raise DecompileError("for update is not a single assignment", self.code[update_at])
+            return For(cond, body, update, has_condition), end + 1
+        return While(cond, body), end + 1
 
     def scan_condition(self, lo: int, hi: int) -> Optional[Tuple[Expr, int]]:
         """If code[lo:] is just an expression followed by an if-goto, return (expression, index of if-goto)."""
         out: List[Stmt] = []
-        engine = Engine(out)
+        engine = Engine(out, base_first=self.base_first)
         for k in range(lo, hi):
             ins = self.code[k]
             if ins.op == "if-goto":

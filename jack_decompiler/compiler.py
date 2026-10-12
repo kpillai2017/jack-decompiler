@@ -23,10 +23,12 @@ from typing import Dict, List, Optional, Tuple
 KEYWORDS = {
     "class", "constructor", "function", "method", "field", "static", "var", "int", "char", "boolean",
     "void", "true", "false", "null", "this", "let", "do", "if", "else", "while", "return",
+    "for", "break", "continue",
 }
 SYMBOLS = set("{}()[].,;+-*/&|<>=~")
 OPS = {"+": "add", "-": "sub", "&": "and", "|": "or", "<": "lt", ">": "gt", "=": "eq"}
-TOKEN = re.compile(r'\s+|//[^\n]*|/\*.*?\*/|(\d+)|"([^"\n]*)"|([A-Za-z_]\w*)|(\S)', re.DOTALL)
+TOKEN = re.compile(r'\s+|//[^\n]*|/\*.*?\*/|(\d+)|"([^"\n]*)"|([A-Za-z_]\w*)|([+\-*/&|]=|\S)', re.DOTALL)
+SYMBOLS.update({"+=", "-=", "*=", "/=", "&=", "|="})
 
 
 class JackSyntaxError(Exception):
@@ -42,11 +44,31 @@ class Token:
     line: int
 
 
-def tokenize(text: str, file: str = "") -> List[Token]:
+def tokenize(text: str, file: str = "", extensions: bool = False) -> List[Token]:
+    escapes = {"n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f", "0": "\0", "\\": "\\", '"': '"', "'": "'"}
     tokens: List[Token] = []
     line = 1
     pos = 0
     while pos < len(text):
+        if extensions and text[pos] == '"':
+            pos += 1
+            chars = []
+            while pos < len(text) and text[pos] != '"':
+                char = text[pos]
+                if char in "\r\n":
+                    raise JackSyntaxError("newline in string literal", line, file)
+                if char == "\\":
+                    pos += 1
+                    if pos >= len(text) or text[pos] not in escapes:
+                        raise JackSyntaxError("unsupported string escape", line, file)
+                    char = escapes[text[pos]]
+                chars.append(char)
+                pos += 1
+            if pos == len(text):
+                raise JackSyntaxError("unterminated string", line, file)
+            tokens.append(Token("string", "".join(chars), line))
+            pos += 1
+            continue
         m = TOKEN.match(text, pos)
         if m is None or (text.startswith("/*", pos) and not m.group(0).endswith("*/")):  # e.g. an unterminated /* comment or string
             raise JackSyntaxError("unterminated comment or string", line, file)
@@ -69,9 +91,10 @@ def tokenize(text: str, file: str = "") -> List[Token]:
 
 
 class Compiler:
-    def __init__(self, text: str, file: str = ""):
+    def __init__(self, text: str, file: str = "", dialect: str = "standard"):
+        self.dialect = dialect
         self.file = file
-        self.tokens = tokenize(text, file)
+        self.tokens = tokenize(text, file, extensions="// Requires jackc --extensions" in text)
         self.pos = 0
         self.out: List[str] = []
         self.class_name = ""
@@ -79,6 +102,8 @@ class Compiler:
         self.sub_vars: Dict[str, Tuple[str, str, int]] = {}
         self.counts: Dict[str, int] = {}
         self.if_count = self.while_count = 0
+        self.loop_targets = []
+        self.for_count = 0
 
     # --- token helpers --------------------------------------------------------
     def peek(self, offset: int = 0) -> Optional[Token]:
@@ -156,6 +181,8 @@ class Compiler:
         self.sub_vars = {}
         self.counts = {k: v for k, v in self.counts.items() if k in ("static", "this")}
         self.if_count = self.while_count = 0
+        self.for_count = 0
+        self.loop_targets = []
         if kind == "method":
             self.define(self.sub_vars, "argument", self.class_name, "this")
         self.expect("(")
@@ -188,33 +215,46 @@ class Compiler:
         self.expect("}")
 
     def statements(self) -> None:
-        while self.at("let", "do", "if", "while", "return"):
+        while self.at("let", "do", "if", "while", "for", "break", "continue", "return"):
             getattr(self, "st_" + self.peek().value)()
 
     def st_let(self) -> None:
+        self.assignment()
+        self.expect(";")
+
+    def assignment(self) -> None:
         self.expect("let")
         name = self.identifier()
         var = self.lookup(name)
         if var is None:
             raise self.error(f"{name!r} is not declared")
-        if self.at("["):
+        indexed = self.at("[")
+        if indexed:
             self.expect("[")
             self.expression()
             self.expect("]")
             self.emit(f"push {var[0]} {var[2]}")
             self.emit("add")
-            self.expect("=")
-            self.expression()
-            self.expect(";")
+        operator = self.expect("=", "+=", "-=", "*=", "/=", "&=", "|=")
+        if operator != "=":
+            if indexed:
+                self.emit("pop pointer 1")
+                self.emit("push pointer 1")
+                self.emit("push that 0")
+            else:
+                self.emit(f"push {var[0]} {var[2]}")
+        self.expression()
+        if operator != "=":
+            op = operator[0]
+            self.emit("call Math.multiply 2" if op == "*" else
+                      "call Math.divide 2" if op == "/" else OPS[op])
+        if indexed:
             self.emit("pop temp 0")
             self.emit("pop pointer 1")
             self.emit("push temp 0")
             self.emit("pop that 0")
-            return
-        self.expect("=")
-        self.expression()
-        self.expect(";")
-        self.emit(f"pop {var[0]} {var[2]}")
+        else:
+            self.emit(f"pop {var[0]} {var[2]}")
 
     def st_do(self) -> None:
         self.expect("do")
@@ -238,6 +278,21 @@ class Compiler:
         self.expect("(")
         self.expression()
         self.expect(")")
+        if self.dialect == "companion":
+            self.emit("not")
+            self.emit(f"if-goto IF_FALSE{n}")
+            self.expect("{")
+            self.statements()
+            self.expect("}")
+            self.emit(f"goto IF_END{n}")
+            self.emit(f"label IF_FALSE{n}")
+            if self.at("else"):
+                self.expect("else")
+                self.expect("{")
+                self.statements()
+                self.expect("}")
+            self.emit(f"label IF_END{n}")
+            return
         self.emit(f"if-goto IF_TRUE{n}")
         self.emit(f"goto IF_FALSE{n}")
         self.emit(f"label IF_TRUE{n}")
@@ -266,10 +321,57 @@ class Compiler:
         self.emit("not")
         self.emit(f"if-goto WHILE_END{n}")
         self.expect("{")
+        self.loop_targets.append((f"WHILE_END{n}", f"WHILE_EXP{n}"))
         self.statements()
+        self.loop_targets.pop()
         self.expect("}")
         self.emit(f"goto WHILE_EXP{n}")
         self.emit(f"label WHILE_END{n}")
+
+    def st_break(self) -> None:
+        self.loop_control("break", 0)
+
+    def st_continue(self) -> None:
+        self.loop_control("continue", 1)
+
+    def loop_control(self, keyword, target):
+        self.expect(keyword)
+        if not self.loop_targets:
+            raise self.error(f"'{keyword}' requires a loop")
+        self.expect(";")
+        self.emit("goto " + self.loop_targets[-1][target])
+
+    def st_for(self) -> None:
+        n = self.for_count
+        self.for_count += 1
+        condition, update, end = f"FOR${n}", f"FORUPDATE${n}", f"ENDFOR${n}"
+        self.expect("for")
+        self.expect("(")
+        if not self.at(";"):
+            self.assignment()
+        self.expect(";")
+        self.emit("label " + condition)
+        if not self.at(";"):
+            self.expression()
+            self.emit("not")
+            self.emit("if-goto " + end)
+        self.expect(";")
+        # Header update appears here in source but executes after the body.
+        offset = len(self.out)
+        if not self.at(")"):
+            self.assignment()
+        update_code = self.out[offset:]
+        del self.out[offset:]
+        self.expect(")")
+        self.expect("{")
+        self.loop_targets.append((end, update))
+        self.statements()
+        self.loop_targets.pop()
+        self.expect("}")
+        self.emit("label " + update)
+        self.out.extend(update_code)
+        self.emit("goto " + condition)
+        self.emit("label " + end)
 
     def expression(self) -> None:
         self.term()
@@ -320,9 +422,12 @@ class Compiler:
             if self.at("["):
                 var = self.variable(name)
                 self.expect("[")
+                if self.dialect == "companion":
+                    self.emit(f"push {var[0]} {var[2]}")
                 self.expression()
                 self.expect("]")
-                self.emit(f"push {var[0]} {var[2]}")
+                if self.dialect != "companion":
+                    self.emit(f"push {var[0]} {var[2]}")
                 self.emit("add")
                 self.emit("pop pointer 1")
                 self.emit("push that 0")
@@ -367,6 +472,6 @@ class Compiler:
         self.emit(f"call {target} {n_args}")
 
 
-def compile_jack(text: str, file: str = "") -> str:
-    """Compile one Jack class to VM text. Raises JackSyntaxError."""
-    return Compiler(text, file).compile_class()
+def compile_jack(text: str, file: str = "", dialect: str = "standard") -> str:
+    """Compile emitted Jack, using standard or companion VM instruction shapes."""
+    return Compiler(text, file, dialect=dialect).compile_class()

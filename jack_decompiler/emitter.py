@@ -24,7 +24,7 @@ from typing import List, Optional, Sequence, Tuple
 
 from .infer import is_object_type
 from .jack_ast import (
-    Binary, Call, Comment, Const, Do, Expr, If, Index, Let, Return, Stmt, StringLit, This, Unary, Var, While,
+    Binary, Call, Comment, Const, Do, Expr, For, Break, Continue, If, Index, Let, Return, Stmt, StringLit, This, Unary, Var, While, walk_stmts, all_exprs,
 )
 from .model import ClassModel, Program, Subroutine
 
@@ -48,6 +48,7 @@ def header(cls: ClassModel) -> List[str]:
 class Emitter:
     def __init__(self, program: Program):
         self.program = program
+        self.extended = False
 
     # --- names and types ---------------------------------------------------
     def var_name(self, sub: Subroutine, var: Var) -> str:
@@ -128,6 +129,9 @@ class Emitter:
         return f"{left} {e.op} {self.term(sub, e.right, right_expect)}"
 
     def string(self, sub: Subroutine, s: StringLit) -> str:
+        if self.extended and len(s.chars) == s.capacity and all(0 <= c <= 32767 for c in s.chars):
+            escapes = {0: r"\0", 8: r"\b", 9: r"\t", 10: r"\n", 12: r"\f", 13: r"\r", 34: r'\"', 92: r"\\"}
+            return '"' + ''.join(escapes.get(c, chr(c)) for c in s.chars) + '"'
         text = s.literal()
         if text is not None:
             return '"' + text + '"'
@@ -166,7 +170,7 @@ class Emitter:
                     target, expect = self.var_name(sub, s.target), self.var_type(sub, s.target)
                 else:
                     target, expect = self.expr(sub, s.target), None
-                lines.append(f"{pad}let {target} = {self.expr(sub, s.value, expect)};")
+                lines.append(f"{pad}let {target} {s.compound or '='} {self.expr(sub, s.value, expect)};")
             elif isinstance(s, Do):
                 lines.append(f"{pad}do {self.call(sub, s.call)};")
             elif isinstance(s, If):
@@ -177,6 +181,19 @@ class Emitter:
                     lines.append(f"{pad}else {{")
                     lines += self.statements(sub, s.otherwise, depth + 1)
                 lines.append(f"{pad}}}")
+            elif isinstance(s, For):
+                update = self.statements(sub, s.update, 0)
+                if len(update) > 1 or (update and not update[0].startswith("let ")):
+                    raise ValueError("for update must be a single assignment")
+                update_text = update[0][:-1] if update else ""
+                condition = self.expr(sub, s.cond, 'boolean') if s.has_condition else ""
+                lines.append(f"{pad}for (; {condition}; {update_text}) {{")
+                lines += self.statements(sub, s.body, depth + 1)
+                lines.append(f"{pad}}}")
+            elif isinstance(s, Break):
+                lines.append(f"{pad}break;")
+            elif isinstance(s, Continue):
+                lines.append(f"{pad}continue;")
             elif isinstance(s, While):
                 lines.append(f"{pad}while ({self.expr(sub, s.cond, 'boolean')}) {{")
                 lines += self.statements(sub, s.body, depth + 1)
@@ -237,7 +254,15 @@ class Emitter:
 
     def class_text(self, cls: ClassModel) -> str:
         p = self.program
-        lines = header(cls) + [f"class {cls.name} {{"]
+        lines = header(cls)
+        self.extended = any(isinstance(s, (For, Break, Continue)) or isinstance(s, Let) and s.compound
+                            for sub in cls.subs for s in walk_stmts(sub.body))
+        self.extended = self.extended or any(
+            isinstance(e, StringLit) and len(e.chars) == e.capacity and e.literal() is None
+            for sub in cls.subs for e in all_exprs(sub.body))
+        if self.extended:
+            lines.append("// Requires jackc --extensions (loop controls, compound updates, or escaped strings).")
+        lines += [f"class {cls.name} {{"]
         statics = [(p.types.get(k, "int"), p.names.get(k, f"static{k[2]}")) for k in cls.static_keys()]
         fields = [(p.types.get(k, "int"), p.names.get(k, f"field{k[2]}")) for k in cls.field_keys()]
         declarations = self.grouped("static", statics, INDENT) + self.grouped("field", fields, INDENT)

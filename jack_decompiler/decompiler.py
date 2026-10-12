@@ -79,11 +79,11 @@ class DecompileResult:
 
 
 # ---------------------------------------------------------------------------
-def analyse_subroutine(function: VMFunction) -> Subroutine:
+def analyse_subroutine(function: VMFunction, base_first: Optional[bool] = None) -> Subroutine:
     kind, n_fields, start = detect_kind(function.body)
     sub = Subroutine(function, kind, n_fields)
     try:
-        sub.body = Structurer(function).run(start)
+        sub.body = Structurer(function, base_first=base_first).run(start)
         _check_jack_rules(sub)
     except DecompileError as error:
         sub.body = []
@@ -143,6 +143,8 @@ def decompile_functions(functions: Sequence[VMFunction], rename_functions: bool 
     if duplicates:
         raise VMSyntaxError(duplicates)
     program = Program()
+    companion = any(ins.op == "label" and "$" in ins.arg1
+                    for function in functions for ins in function.body)
     for class_name, members in group_by_class(functions).items():
         files = sorted({f.file for f in members})
         cls = ClassModel(class_name, members[0].file)
@@ -151,7 +153,7 @@ def decompile_functions(functions: Sequence[VMFunction], rename_functions: bool 
         elif files[0] and Path(files[0]).stem != class_name:
             program.warnings.append(f"{files[0]} contains class {class_name} (expected {class_name}.vm)")
         for function in members:
-            sub = analyse_subroutine(function)
+            sub = analyse_subroutine(function, base_first=True if companion else None)
             cls.subs.append(sub)
             program.subs[sub.full_name] = sub
         program.classes[class_name] = cls

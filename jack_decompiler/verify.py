@@ -86,5 +86,13 @@ def verify(result: DecompileResult) -> List[ClassCheck]:
             checks.append(ClassCheck(cls.name, False, f"recompiling gave bad VM code: {error}"))
             continue
         difference = compare(original, rebuilt, renames)
+        if difference is not None:
+            # Different Jack compilers use different if and array-read shapes.
+            # Require exact instruction equality in either dialect; do not
+            # weaken verification to a heuristic semantic comparison.
+            companion = parse_vm(compile_jack(cls.jack, cls.jack_file_name, dialect="companion"), cls.name + ".vm")
+            alternative = compare(original, companion, renames)
+            if alternative is None:
+                difference = None
         checks.append(ClassCheck(cls.name, difference is None, difference or "identical after recompiling"))
     return checks

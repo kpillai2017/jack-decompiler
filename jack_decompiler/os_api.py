@@ -6,7 +6,8 @@ Most programs only contain their OWN classes; the Jack OS (Math, String,
 Array, Output, Screen, Keyboard, Memory, Sys) comes from the VM. To write
 `s.length()` instead of `String.length(s)`, and to give variables good
 names, the decompiler needs to know each OS subroutine's kind, return type
-and parameters. They're listed here, from the nand2tetris Jack OS API.
+and parameters. Standard signatures are from the nand2tetris Jack OS API;
+public companion additions are loaded from os_extensions.py.
 
 Parameter names are chosen to be descriptive, because they're used as name
 suggestions: a local passed to `Screen.drawCircle(x, y, radius)` as the
@@ -90,6 +91,17 @@ OS_API: Dict[str, Signature] = {
     "Sys.wait": _sig("function", "void", "int duration"),
 }
 
+# Recognition does not supply runtime implementations: these need the
+# companion extended OS, not the stock nand2tetris library.
+from .os_extensions import DECLARATIONS
+
+for cls, declarations in DECLARATIONS.items():
+    for declaration in declarations:
+        head, params = declaration.rstrip(")").split("(")
+        kind, return_type, name = head.split()
+        OS_API[cls + "." + name] = _sig(kind, return_type,
+                                       *(p.strip() for p in params.split(",") if p.strip()))
+
 OS_CLASSES = frozenset(name.split(".")[0] for name in OS_API)
 
 # A good name for a variable that holds the result of calling one of these.
@@ -113,9 +125,20 @@ RESULT_NAMES: Dict[str, str] = {
     "String.new": "str",
 }
 
+RESULT_NAMES.update({
+    "Input.key": "key", "Input.pressed": "pressed", "Input.released": "released",
+    "Random.next": "randomValue", "Random.range": "randomValue",
+    "IntQueue.dequeue": "value", "IntQueue.length": "length",
+    "IntStack.pop": "value", "IntStack.peek": "value", "IntStack.length": "length",
+    "Timer.remaining": "remaining", "Timer.expired": "expired",
+    "Clock.supported": "supported", "Clock.now": "start", "Clock.elapsed": "elapsed",
+    "Output.cursorRow": "row", "Output.cursorColumn": "column",
+    "String.capacity": "capacity", "String.copy": "copy", "String.substring": "text",
+})
+
 PRIMITIVE_TYPES = ("int", "char", "boolean")
 
 JACK_KEYWORDS = frozenset(
     "class constructor function method field static var int char boolean void "
-    "true false null this let do if else while return".split()
+    "true false null this let do if else while return for break continue const enum".split()
 )

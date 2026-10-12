@@ -41,9 +41,16 @@ jobs:
       - name: Fetch jackvm-py (its games are decompiled and checked too)
         shell: bash
         run: |
-          git clone --quiet --depth 1 https://github.com/kpillai2017/jackvm-py.git "$RUNNER_TEMP/jackvm-py" \
-            && echo "JACKVM_GAMES=$RUNNER_TEMP/jackvm-py/games" >> "$GITHUB_ENV" \
-            || echo "jackvm-py not available: those tests will be skipped"
+          git clone --quiet --depth 1 https://github.com/kpillai2017/jackvm-py.git "$RUNNER_TEMP/jackvm-py"
+          echo "JACKVM_GAMES=$RUNNER_TEMP/jackvm-py/games" >> "$GITHUB_ENV"
+
+      - name: Fetch compiler and enable cross-tool checks
+        shell: bash
+        run: |
+          git clone --quiet --depth 1 https://github.com/kpillai2017/jack-compiler.git "$RUNNER_TEMP/jack-compiler"
+          python -m pip install -e "$RUNNER_TEMP/jack-compiler"
+          python -m pip install -e "$RUNNER_TEMP/jackvm-py"
+          python -c "import jack_compiler.compiler, jackvm.vm; jack_compiler.compiler.JackCompiler(extensions=True); print('Companion imports and extension support verified')"
 
       - name: Run the tests
         run: python -m pytest -v

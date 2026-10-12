@@ -74,7 +74,7 @@ return""")))
     assert 'do Output.printString("Hi");' in lines
 
 
-def test_unprintable_string_falls_back_to_calls():
+def test_unprintable_string_uses_marked_escape_literal():
     lines = body_lines(jack_of(fn("""
 push constant 1
 call String.new 1
@@ -84,7 +84,7 @@ call Output.printString 1
 pop temp 0
 push constant 0
 return""")))
-    assert "do Output.printString(String.appendChar(String.new(1), 34));" in lines
+    assert r'do Output.printString("\"");' in lines
 
 
 def test_array_read_and_write():

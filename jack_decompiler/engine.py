@@ -33,7 +33,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple
 
 from .jack_ast import (
-    Binary, Call, Const, Do, Expr, Index, Let, Return, Stmt, StringLit, This, Unary, Var, walk_expr,
+    Binary, Call, Const, Do, Expr, Index, SavedIndex, Let, Return, Stmt, StringLit, This, Unary, Var, walk_expr,
 )
 from .vm_reader import Instr
 
@@ -63,7 +63,7 @@ def has_call(e: Expr) -> bool:
     return any(isinstance(x, Call) for x in walk_expr(e))
 
 
-def array_access(address: Expr) -> Optional[Index]:
+def array_access(address: Expr, base_first: bool = False) -> Optional[Index]:
     """
     `base + index` as Index(base, index), or None if `address` isn't of that
     shape. The nand2tetris compiler pushes the INDEX first and the array
@@ -71,6 +71,8 @@ def array_access(address: Expr) -> Optional[Index]:
     decompile -> recompile give identical VM code).
     """
     if isinstance(address, Binary) and address.op == "+":
+        if base_first and isinstance(address.left, Var):
+            return Index(address.left, address.right)
         if isinstance(address.right, Var):
             return Index(address.right, address.left)
         if isinstance(address.left, Var):
@@ -81,7 +83,8 @@ def array_access(address: Expr) -> Optional[Index]:
 class Engine:
     """Symbolic execution of one straight-line piece of code."""
 
-    def __init__(self, out: List[Stmt]):
+    def __init__(self, out: List[Stmt], base_first: bool = False):
+        self.base_first = base_first
         self.out = out  # statements are appended here
         self.stack: List[Expr] = []
         # temp n -> (value, stack depth when stored). Kept until read with
@@ -164,7 +167,11 @@ class Engine:
             return self.temps.pop(index)[0]
         # segment == "that"
         address = self._that_address(ins)
-        return array_access(address) or Call("Memory.peek", (address,))
+        saved = self.stack and self.stack[-1] is self.that and ins.arg2 == 0
+        target = array_access(address, base_first=self.base_first and not saved)
+        if target is not None and self.stack and self.stack[-1] is self.that and ins.arg2 == 0:
+            return SavedIndex(target.base, target.index)
+        return target or Call("Memory.peek", (address,))
 
     def _that_address(self, ins: Instr) -> Expr:
         if self.that is None:
@@ -187,6 +194,11 @@ class Engine:
         else:  # that
             address = self._that_address(ins)
             target = array_access(address)
+            if target and isinstance(value, Binary) and isinstance(value.left, SavedIndex):
+                saved = value.left
+                if saved.base == target.base and saved.index == target.index:
+                    self.emit(Let(target, value.right, value.op + "="), ins)
+                    return
             self.emit(Let(target, value) if target else Do(Call("Memory.poke", (address, value))), ins)
 
     def _call(self, ins: Instr) -> Expr:

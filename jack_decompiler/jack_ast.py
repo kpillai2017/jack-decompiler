@@ -74,6 +74,11 @@ class Index(Expr):
 
 
 @dataclass(frozen=True)
+class SavedIndex(Index):
+    """Array read whose address was saved on the VM stack for an update."""
+
+
+@dataclass(frozen=True)
 class StringLit(Expr):
     """`String.new(capacity)` followed by appendChar(c) for each c in chars."""
 
@@ -97,6 +102,7 @@ class Stmt:
 class Let(Stmt):
     target: Union[Var, Index]
     value: Expr
+    compound: Optional[str] = None  # RHS only; preserves one array target evaluation
 
 
 @dataclass
@@ -115,6 +121,24 @@ class If(Stmt):
 class While(Stmt):
     cond: Expr
     body: List[Stmt] = field(default_factory=list)
+
+
+@dataclass
+class For(While):
+    # Initialisation is emitted as the preceding ordinary statement.
+    # None means no condition: unlike while(true), no VM test was emitted.
+    update: List[Stmt] = field(default_factory=list)
+    has_condition: bool = True
+
+
+@dataclass
+class Break(Stmt):
+    pass
+
+
+@dataclass
+class Continue(Stmt):
+    pass
 
 
 @dataclass
@@ -163,6 +187,8 @@ def walk_stmts(stmts: List[Stmt]) -> Iterator[Stmt]:
                 yield from walk_stmts(s.otherwise)
         elif isinstance(s, While):
             yield from walk_stmts(s.body)
+            if isinstance(s, For):
+                yield from walk_stmts(s.update)
 
 
 def stmt_exprs(s: Stmt) -> Tuple[Expr, ...]:
